@@ -1,2 +1,2 @@
-# app-template
+# catchat-app
 # made in capacitorjs
