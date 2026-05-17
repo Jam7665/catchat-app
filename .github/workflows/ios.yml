@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-ios:
-    runs-on: macos-latest # Tells GitHub to spin up an Apple cloud server
+    runs-on: macos-latest
     permissions:
       contents: write
 
@@ -32,7 +32,6 @@ jobs:
         npx cap sync ios
 
     # --- APPLE CODE SIGNING SETUP ---
-    # This imports your certificates into the cloud runner's temporary keychain
     - name: Install Apple Certificate and Provisioning Profile
       env:
         BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
@@ -40,25 +39,20 @@ jobs:
         BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
         KEYCHAIN_PASSWORD: "temporary_password"
       run: |
-        # Create variables
         CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
         PP_PATH=$RUNNER_TEMP/build_pp.mobileprovision
         KEYCHAIN_PATH=$RUNNER_TEMP/app-build.keychain-db
 
-        # Import certificate and provisioning profile from secrets
         echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
         echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o $PP_PATH
 
-        # Create temporary keychain
         security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
         security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
         security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
 
-        # Import certificate to keychain
         security import $CERTIFICATE_PATH -k $KEYCHAIN_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12
         security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
 
-        # Apply provisioning profile
         mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
         cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/
 
@@ -85,4 +79,4 @@ jobs:
         name: iOS Release ${{ steps.tag.outputs.release_tag }}
         draft: false
         prerelease: false
-        files: ${{ os.environ.RUNNER_TEMP }}/exported/App.ipa
+        files: ${{ runner.temp }}/exported/App.ipa # Fixed syntax here
