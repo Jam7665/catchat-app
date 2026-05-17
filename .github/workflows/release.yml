@@ -6,19 +6,27 @@ on:
   workflow_dispatch:
 
 jobs:
-  # STEP 1: Generate a single shared tag for this push event
+  # STEP 1: Read the version string directly from package.json to name the release
   create-tag:
     runs-on: ubuntu-latest
     outputs:
       release_tag: ${{ steps.tag.outputs.release_tag }}
+      clean_title: ${{ steps.tag.outputs.clean_title }}
     steps:
     - name: Checkout Source Code
       uses: actions/checkout@v4
 
-    - name: Generate Dynamic Tag Name
+    - name: Read Version from package.json
       id: tag
       run: |
-        echo "release_tag=v$(date +'%Y.%m.%d-%H%M')-${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+        # Extracts the version number field from your root package.json file
+        VERSION=$(node -p "require('./package.json').version")
+        
+        # Behind-the-scenes Git Tag (Keeps a short commit SHA attached so it never conflicts)
+        echo "release_tag=v${VERSION}-${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+        
+        # Public Display Title (Clean and simple: e.g., v1.0)
+        echo "clean_title=v${VERSION}" >> $GITHUB_OUTPUT
 
   # STEP 2: Deploy cloud nodes to build and upload files to that exact release
   build-all:
@@ -117,14 +125,15 @@ jobs:
       shell: bash
       run: echo "asset_path=android/app/build/outputs/apk/debug/app-debug.apk" >> $GITHUB_OUTPUT
 
-    # Map target path for Windows Setup Node
+    # Map target path for Windows Setup Node (Collects both the EXE installer and latest.yml metadata)
     - name: Locate Windows EXE
       if: matrix.platform == 'windows'
       id: find_exe
       shell: powershell
       run: |
-        $file = Get-ChildItem -Path electron/dist -Filter *.exe -Recurse | Select-Object -First 1
-        echo "asset_path=$($file.FullName)" >> $env:GITHUB_OUTPUT
+        $exe = Get-ChildItem -Path electron/dist -Filter *.exe -Recurse | Select-Object -First 1
+        $yml = Get-ChildItem -Path electron/dist -Filter latest.yml -Recurse | Select-Object -First 1
+        echo "asset_path=$($exe.FullName),$($yml.FullName)" >> $env:GITHUB_OUTPUT
 
     # Map target paths for Linux Systems (Finds deb, rpm, and AppImage files simultaneously)
     - name: Locate Linux Binaries
@@ -134,13 +143,18 @@ jobs:
         FILES=$(find electron/dist/ -type f \( -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" \) | tr '\n' ',' | sed 's/,$//')
         echo "asset_path=$FILES" >> $GITHUB_OUTPUT
 
-    # Map target paths for macOS Disk Image Volumes
+    # Map target paths for macOS Disk Image Volumes (Collects DMG and optional latest-mac.yml if present)
     - name: Locate macOS DMG
       if: matrix.platform == 'macos'
       id: find_mac
       run: |
-        FILE_PATH=$(find electron/dist/ -type f \( -name "*.dmg" -o -name "*.zip" \) | head -n 1)
-        echo "asset_path=$FILE_PATH" >> $GITHUB_OUTPUT
+        DMG_PATH=$(find electron/dist/ -type f -name "*.dmg" | head -n 1)
+        YML_PATH=$(find electron/dist/ -type f -name "latest-mac.yml" | head -n 1)
+        if [ -n "$YML_PATH" ]; then
+          echo "asset_path=$DMG_PATH,$YML_PATH" >> $GITHUB_OUTPUT
+        else
+          echo "asset_path=$DMG_PATH" >> $GITHUB_OUTPUT
+        fi
 
     # Condense all variables cleanly into a single upload string path
     - name: Prepare Assets String Context
@@ -157,11 +171,11 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ needs.create-tag.outputs.release_tag }}
-        name: Multi-Platform Release ${{ needs.create-tag.outputs.release_tag }}
+        name: ${{ needs.create-tag.outputs.clean_title }}
         body: |
           Automated multi-platform compilation pipeline.
           Repository: awoo-co/catchat-app
           Commit: ${{ github.sha }}
-        draft: true # Fixed: Keeps the page as a hidden draft until you choose to publish it
+        draft: true
         prerelease: false
         files: ${{ steps.asset.outputs.path }}
