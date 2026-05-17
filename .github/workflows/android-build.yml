@@ -1,13 +1,14 @@
-name: Build Android APK
+name: Build and Release Android APK
 
 on:
   push:
-    branches: [ main, master ]  # Triggers whenever you push to main or master
-  workflow_dispatch:          # Allows you to trigger it manually from the Actions tab
+    branches: [ main, master ]  # Triggers on every commit pushed to main/master
 
 jobs:
-  build:
+  build-and-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Crucial: Gives the runner permission to create a Release
 
     steps:
     - name: Checkout Source Code
@@ -17,7 +18,7 @@ jobs:
       uses: actions/setup-java@v4
       with:
         distribution: 'zulu'
-        java-version: '21' # Fixed: Upgraded from 17 to 21 for modern Capacitor
+        java-version: '21'
         cache: 'gradle'
 
     - name: Set up Node.js
@@ -30,8 +31,6 @@ jobs:
       run: npm ci
 
     - name: Build Web Assets
-      # If you just use plain HTML/CSS/JS without a bundler build step (like Vite), 
-      # this will safely skip without breaking.
       run: npm run build --if-present
 
     - name: Sync Web Code to Capacitor Android Shell
@@ -43,12 +42,21 @@ jobs:
         cd android
         chmod +x gradlew
         ./gradlew assembleDebug
-      env:
-        NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Upload Finished APK as Artifact
-      uses: actions/upload-artifact@v4
+    - name: Generate Dynamic Tag Name
+      id: tag
+      run: |
+        # Creates a unique tag using the date, time, and short commit SHA
+        echo "release_tag=v$(date +'%Y.%m.%d-%H%M')-${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+    - name: Create GitHub Release and Upload APK
+      uses: softprops/action-gh-release@v2
       with:
-        name: app-debug-apk
-        path: android/app/build/outputs/apk/debug/app-debug.apk
-        retention-days: 7
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        name: Release ${{ steps.tag.outputs.release_tag }}
+        body: |
+          Automated build template release.
+          Commit: ${{ github.sha }}
+        draft: false
+        prerelease: false
+        files: android/app/build/outputs/apk/debug/app-debug.apk
