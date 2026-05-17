@@ -1,4 +1,4 @@
-package com.example.myapp;
+package com.awooco.catchat;
 
 import com.getcapacitor.BridgeActivity;
 
