@@ -4,6 +4,6 @@
 
 platforms supported 
 macos (not tested as i dont have a mac)
-windows (might work)
+windows (works)
 linux (not tested yet)
-android (tested)
+android (works)

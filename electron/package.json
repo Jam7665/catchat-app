@@ -1,10 +1,10 @@
 {
   "name": "Catchat",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "An Amazing Capacitor App",
   "author": {
-    "name": "Your Name",
-    "email": "your-email@example.com"
+    "name": "awoo-co",
+    "email": "jameskuyt655@gmail.com"
   },
   "repository": {
     "type": "git",
