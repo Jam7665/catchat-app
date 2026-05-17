@@ -80,6 +80,15 @@ body {
   text-decoration: underline;
 }
 
+.message img {
+  display: block;
+  max-width: 160px !important;
+  max-height: 160px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
 /* Input Container & Components Layout */
 #inputContainer {
   display: flex;
