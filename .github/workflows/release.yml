@@ -1,0 +1,158 @@
+name: Build and Release All Platforms
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  # STEP 1: Establish a single unique tag for this push event
+  create-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.tag.outputs.release_tag }}
+    steps:
+    - name: Generate Dynamic Tag Name
+      id: tag
+      run: |
+        echo "release_tag=v$(date +'%Y.%m.%d-%H%M')-${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+  # STEP 2: Deploy cloud nodes to build and upload files to that exact release
+  build-all:
+    needs: create-tag
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: android
+            os: ubuntu-latest
+          - platform: windows
+            os: windows-latest
+          - platform: linux
+            os: ubuntu-latest
+          - platform: macos
+            os: macos-latest
+
+    steps:
+    - name: Checkout Source Code
+      uses: actions/checkout@v4
+
+    - name: Set up Java (Only needed for Android compilation)
+      if: matrix.platform == 'android'
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '21'
+        cache: 'gradle'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: 'npm'
+
+    - name: Install Root Dependencies
+      run: npm ci
+
+    - name: Build Web Assets
+      run: npm run build --if-present
+
+    # --- PLATFORM SPECIFIC SYNC & BUILD TARGETS ---
+    
+    # Process Android Architecture
+    - name: Build Android
+      if: matrix.platform == 'android'
+      run: |
+        npx cap sync android
+        cd android
+        chmod +x gradlew
+        ./gradlew assembleDebug
+
+    # Process Windows Desktop Package
+    - name: Build Windows
+      if: matrix.platform == 'windows'
+      run: |
+        npx cap sync @capacitor-community/electron
+        cd electron
+        npm ci
+        npm run electron:make --if-present
+
+    # Process Linux Desktops (AppImage, deb, rpm)
+    - name: Build Linux
+      if: matrix.platform == 'linux'
+      run: |
+        npx cap sync @capacitor-community/electron
+        cd electron
+        npm ci
+        npm run electron:make --if-present
+
+    # Process Apple Desktop Volume
+    - name: Build macOS Desktop
+      if: matrix.platform == 'macos'
+      run: |
+        npx cap sync @capacitor-community/electron
+        cd electron
+        npm ci
+        npm run electron:make --if-present
+
+    # --- RESOLVE TARGET ARTIFACT STRINGS ---
+
+    # Map target path for Mobile (Android)
+    - name: Locate Android APK
+      if: matrix.platform == 'android'
+      id: find_apk
+      shell: bash
+      run: echo "asset_path=android/app/build/outputs/apk/debug/app-debug.apk" >> $GITHUB_OUTPUT
+
+    # Map target path for Windows Setup Node
+    - name: Locate Windows EXE
+      if: matrix.platform == 'windows'
+      id: find_exe
+      shell: powershell
+      run: |
+        $file = Get-ChildItem -Path electron/dist -Filter *.exe -Recurse | Select-Object -First 1
+        echo "asset_path=$($file.FullName)" >> $env:GITHUB_OUTPUT
+
+    # Map target paths for Linux Systems (Finds deb, rpm, and AppImage files simultaneously)
+    - name: Locate Linux Binaries
+      if: matrix.platform == 'linux'
+      id: find_linux
+      run: |
+        FILES=$(find electron/dist/ -type f \( -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" \) | tr '\n' ',' | sed 's/,$//')
+        echo "asset_path=$FILES" >> $GITHUB_OUTPUT
+
+    # Map target paths for macOS Disk Image Volumes
+    - name: Locate macOS DMG
+      if: matrix.platform == 'macos'
+      id: find_mac
+      run: |
+        FILE_PATH=$(find electron/dist/ -type f \( -name "*.dmg" -o -name "*.zip" \) | head -n 1)
+        echo "asset_path=$FILE_PATH" >> $GITHUB_OUTPUT
+
+    # Condense all variables cleanly into a single upload string path
+    - name: Prepare Assets String Context
+      id: asset
+      shell: bash
+      run: |
+        if [ "${{ matrix.platform }}" = "android" ]; then echo "path=${{ steps.find_apk.outputs.asset_path }}" >> $GITHUB_OUTPUT; fi
+        if [ "${{ matrix.platform }}" = "windows" ]; then echo "path=${{ steps.find_exe.outputs.asset_path }}" >> $GITHUB_OUTPUT; fi
+        if [ "${{ matrix.platform }}" = "linux" ]; then echo "path=${{ steps.find_linux.outputs.asset_path }}" >> $GITHUB_OUTPUT; fi
+        if [ "${{ matrix.platform }}" = "macos" ]; then echo "path=${{ steps.find_mac.outputs.asset_path }}" >> $GITHUB_OUTPUT; fi
+
+    # Drop the finished files right inside the main shared release version tag
+    - name: Dispatch Upload to Shared Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ needs.create-tag.outputs.release_tag }}
+        name: Multi-Platform Release ${{ needs.create-tag.outputs.release_tag }}
+        body: |
+          Automated multi-platform compilation pipeline.
+          Repository: awoo-co/catchat-app
+          Commit: ${{ github.sha }}
+        draft: false
+        prerelease: false
+        files: ${{ steps.asset.outputs.path }}

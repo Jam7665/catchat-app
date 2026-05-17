@@ -1,7 +1,9 @@
 {
-  "appId": "com.yourdoamnin.yourapp",
+  "appId": "com.awoo-co.catchat",
+  "productName": "Catchat",
   "directories": {
-    "buildResources": "resources"
+    "buildResources": "resources",
+    "output": "dist"
   },
   "files": [
     "assets/**/*",
@@ -18,11 +20,15 @@
     "allowToChangeInstallationDirectory": true
   },
   "win": {
-    "target": "nsis",
-    "icon": "assets/appIcon.ico"
+    "target": ["nsis"],
+    "icon": "assets/icon_only.ico"
   },
   "mac": {
-    "category": "your.app.category.type",
-    "target": "dmg"
+    "category": "public.app-category.utilities",
+    "target": ["dmg"]
+  },
+  "linux": {
+    "target": ["AppImage", "deb", "rpm"],
+    "category": "Utility"
   }
 }

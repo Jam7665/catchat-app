@@ -3,12 +3,12 @@
   "version": "1.0.0",
   "description": "An Amazing Capacitor App",
   "author": {
-    "name": "",
-    "email": ""
+    "name": "james",
+    "email": "jameskuyt655@gmail.com"
   },
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "git+https://github.com/awoo-co/catchat-app.git"
   },
   "license": "MIT",
   "main": "build/src/index.js",
