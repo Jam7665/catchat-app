@@ -1,0 +1,65 @@
+name: Build and Release Linux App
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout Source Code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: 'npm'
+
+    - name: Install Root Dependencies
+      run: npm ci
+
+    - name: Build Web Assets
+      run: npm run build --if-present
+
+    - name: Sync Code to Electron Shell
+      run: npx cap sync @capacitor-community/electron
+
+    - name: Install Electron Platform Dependencies
+      run: |
+        cd electron
+        npm ci
+
+    - name: Compile Linux Executable
+      run: |
+        cd electron
+        npm run electron:make --if-present
+        # Note: If using electron-builder instead of electron-forge, fallback to:
+        # npx electron-builder --linux AppImage
+
+    - name: Find Created Linux Installer
+      id: find_linux
+      run: |
+        # Looks for the generated .AppImage or .deb files inside the electron folder
+        FILE_PATH=$(find electron/ -type f \( -name "*.AppImage" -o -name "*.deb" \) | head -n 1)
+        if [ -z "$FILE_PATH" ]; then echo "No Linux binary found"; exit 1; fi
+        echo "linux_path=$FILE_PATH" >> $GITHUB_OUTPUT
+
+    - name: Generate Dynamic Tag Name
+      id: tag
+      run: |
+        echo "release_tag=v$(date +'%Y.%m.%d-%H%M')-${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+    - name: Create GitHub Release and Upload Package
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        name: Linux Desktop Release ${{ steps.tag.outputs.release_tag }}
+        draft: false
+        prerelease: false
+        files: ${{ steps.find_linux.outputs.linux_path }}

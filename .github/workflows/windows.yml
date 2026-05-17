@@ -1,0 +1,68 @@
+name: Build and Release Windows App
+
+on:
+  push:
+    branches: [ main, master ]  # Triggers on every commit pushed to main/master
+  workflow_dispatch:          # Allows manual trigger from the Actions tab
+
+jobs:
+  build-windows:
+    runs-on: windows-latest   # Instructs GitHub to deploy a Windows virtual environment
+    permissions:
+      contents: write         # Allows the script to write artifacts to a GitHub Release
+
+    steps:
+    - name: Checkout Source Code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: 'npm'
+
+    - name: Install Root Dependencies
+      run: npm ci
+
+    - name: Build Web Assets
+      run: npm run build --if-present
+
+    - name: Sync Code to Electron Shell
+      run: npx cap sync @capacitor-community/electron
+
+    - name: Install Electron Platform Dependencies
+      run: |
+        cd electron
+        npm ci
+
+    - name: Compile Windows Executable
+      run: |
+        cd electron
+        npm run electron:make --if-present
+        # Note: If your electron framework template package uses electron-builder instead of electron-forge,
+        # use the following fallback line to build:
+        # npx electron-builder --win nsis
+
+    - name: Find Created Installer Executable
+      id: find_exe
+      shell: powershell
+      run: |
+        # Recursively searches the output folders for the compiled setup file
+        $exe = Get-ChildItem -Path electron -Filter *.exe -Recurse | Select-Object -First 1
+        if (-not $exe) { Write-Error 'No compiled Windows installer found'; exit 1 }
+        echo "exe_path=$($exe.FullName)" >> $env:GITHUB_OUTPUT
+
+    - name: Generate Dynamic Tag Name
+      id: tag
+      shell: bash
+      run: |
+        echo "release_tag=v$(date +'%Y.%m.%d-%H%M')-${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+    - name: Create GitHub Release and Upload EXE
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        name: Windows Desktop Release ${{ steps.tag.outputs.release_tag }}
+        draft: false
+        prerelease: false
+        files: ${{ steps.find_exe.outputs.exe_path }}
