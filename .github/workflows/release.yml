@@ -84,7 +84,7 @@ jobs:
         npm ci
         npm run electron:make --if-present
       env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Fixed: Satisfies electron-builder check
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     # Process Linux Desktops (AppImage, deb, rpm)
     - name: Build Linux
@@ -95,7 +95,7 @@ jobs:
         npm ci
         npm run electron:make --if-present
       env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Fixed: Satisfies electron-builder check
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     # Process Apple Desktop Volume
     - name: Build macOS Desktop
@@ -106,7 +106,7 @@ jobs:
         npm ci
         npm run electron:make --if-present
       env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Fixed: Satisfies electron-builder check
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     # --- RESOLVE TARGET ARTIFACT STRINGS ---
 
@@ -162,6 +162,6 @@ jobs:
           Automated multi-platform compilation pipeline.
           Repository: awoo-co/catchat-app
           Commit: ${{ github.sha }}
-        draft: false
+        draft: true # Fixed: Keeps the page as a hidden draft until you choose to publish it
         prerelease: false
         files: ${{ steps.asset.outputs.path }}
