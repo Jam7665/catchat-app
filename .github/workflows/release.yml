@@ -6,12 +6,15 @@ on:
   workflow_dispatch:
 
 jobs:
-  # STEP 1: Establish a single unique tag for this push event
+  # STEP 1: Generate a single shared tag for this push event
   create-tag:
     runs-on: ubuntu-latest
     outputs:
       release_tag: ${{ steps.tag.outputs.release_tag }}
     steps:
+    - name: Checkout Source Code
+      uses: actions/checkout@v4
+
     - name: Generate Dynamic Tag Name
       id: tag
       run: |
@@ -80,6 +83,8 @@ jobs:
         cd electron
         npm ci
         npm run electron:make --if-present
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Fixed: Satisfies electron-builder check
 
     # Process Linux Desktops (AppImage, deb, rpm)
     - name: Build Linux
@@ -89,6 +94,8 @@ jobs:
         cd electron
         npm ci
         npm run electron:make --if-present
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Fixed: Satisfies electron-builder check
 
     # Process Apple Desktop Volume
     - name: Build macOS Desktop
@@ -98,6 +105,8 @@ jobs:
         cd electron
         npm ci
         npm run electron:make --if-present
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Fixed: Satisfies electron-builder check
 
     # --- RESOLVE TARGET ARTIFACT STRINGS ---
 
