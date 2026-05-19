@@ -6,24 +6,31 @@ on:
   workflow_dispatch:
 
 jobs:
-  # STEP 1: Read the version string directly from package.json to name the release
+  # ==========================================
+  # STEP 1: DYNAMIC VERSION TAG GENERATOR
+  # ==========================================
   create-tag:
     runs-on: ubuntu-latest
     outputs:
       release_tag: ${{ steps.tag.outputs.release_tag }}
       clean_title: ${{ steps.tag.outputs.clean_title }}
+      app_name: ${{ steps.tag.outputs.app_name }}
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Read Version from package.json
+      - name: Read Metadata from package.json
         id: tag
         run: |
           VERSION=$(node -p "require('./package.json').version")
+          NAME=$(node -p "require('./package.json').name || 'mobile-app'")
           echo "release_tag=v${VERSION}-${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
           echo "clean_title=v${VERSION}" >> $GITHUB_OUTPUT
+          echo "app_name=${NAME}" >> $GITHUB_OUTPUT
 
-  # STEP 2: Compile the Android APK
+  # ==========================================
+  # STEP 2: PARALLEL ANDROID COMPILATION
+  # ==========================================
   build-android:
     needs: create-tag
     name: Build (Android Mobile)
@@ -32,7 +39,7 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Set up Java
+      - name: Set up Java JDK
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
@@ -51,7 +58,7 @@ jobs:
       - name: Ensure Capacitor Android Package Exists
         run: npm install @capacitor/android
 
-      - name: Build Web Assets
+      - name: Build Web Assets (Bypasses if Vanilla)
         run: npm run build --if-present
 
       - name: Sync Code to Android Environment
@@ -63,14 +70,15 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug
 
-      # Upload to pipeline staging so the final release block can collect it
       - name: Upload Android Staging Binary
         uses: actions/upload-artifact@v4
         with:
           name: android-bin
           path: android/app/build/outputs/apk/debug/app-debug.apk
 
-  # STEP 3: Compile the iOS IPA
+  # ==========================================
+  # STEP 3: PARALLEL IOS COMPILATION (SPM COMPATIBLE)
+  # ==========================================
   build-ios:
     needs: create-tag
     name: Build (iOS Mobile)
@@ -90,13 +98,13 @@ jobs:
       - name: Ensure Capacitor iOS Package Exists
         run: npm install @capacitor/ios
 
-      - name: Web Asset Build
-        run: npm run build
+      - name: Web Asset Build (Bypasses if Vanilla)
+        run: npm run build --if-present
 
       - name: Capacitor Sync iOS
         run: npx cap sync ios
 
-      - name: Compile Xcode Binaries
+      - name: Compile Xcode Binaries via Project SPM
         run: |
           cd ios/App
           xcodebuild -project App.xcodeproj \
@@ -113,16 +121,17 @@ jobs:
         run: |
           mkdir -p build/Payload
           cp -r ios/App/build/Build/Products/Debug-iphoneos/App.app build/Payload/
-          cd build && zip -r fps-test-app.ipa Payload/
+          cd build && zip -r template-app.ipa Payload/
 
-      # Upload to pipeline staging so the final release block can collect it
       - name: Upload iOS Staging Binary
         uses: actions/upload-artifact@v4
         with:
           name: ios-bin
-          path: build/fps-test-app.ipa
+          path: build/template-app.ipa
 
-  # STEP 4: Merge files and publish to GitHub Releases
+  # ==========================================
+  # STEP 4: UNIFIED GITHUB RELEASE PUBLISHER
+  # ==========================================
   publish-release:
     needs: [create-tag, build-android, build-ios]
     name: Publish Shared GitHub Release
@@ -145,10 +154,11 @@ jobs:
           name: ios-bin
           path: release-assets/
 
-      # Renames files cleanly so they look uniform inside your releases tab
-      - name: Standardize Filenames
+      - name: Standardize and Match Binary Names
         run: |
-          mv release-assets/app-debug.apk release-assets/fps-test-app.apk
+          APP_NAME="${{ needs.create-tag.outputs.app_name }}"
+          mv release-assets/app-debug.apk "release-assets/${APP_NAME}.apk"
+          mv release-assets/template-app.ipa "release-assets/${APP_NAME}.ipa"
 
       - name: Dispatch Upload to Shared Release
         uses: softprops/action-gh-release@v2
@@ -158,10 +168,11 @@ jobs:
           body: |
             Automated Cross-Platform Compilation Pipeline.
             
+            Target App: ${{ needs.create-tag.outputs.app_name }}
             Repository: ${{ github.repository }}
             Commit: ${{ github.sha }}
           draft: true
           prerelease: false
           files: |
-            release-assets/fps-test-app.apk
-            release-assets/fps-test-app.ipa
+            release-assets/${{ needs.create-tag.outputs.app_name }}.apk
+            release-assets/${{ needs.create-tag.outputs.app_name }}.ipa
