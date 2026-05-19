@@ -1,0 +1,167 @@
+name: Build and Release Mobile Apps
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  # STEP 1: Read the version string directly from package.json to name the release
+  create-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.tag.outputs.release_tag }}
+      clean_title: ${{ steps.tag.outputs.clean_title }}
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Read Version from package.json
+        id: tag
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "release_tag=v${VERSION}-${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+          echo "clean_title=v${VERSION}" >> $GITHUB_OUTPUT
+
+  # STEP 2: Compile the Android APK
+  build-android:
+    needs: create-tag
+    name: Build (Android Mobile)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install Root Dependencies
+        run: npm install
+
+      - name: Ensure Capacitor Android Package Exists
+        run: npm install @capacitor/android
+
+      - name: Build Web Assets
+        run: npm run build --if-present
+
+      - name: Sync Code to Android Environment
+        run: npx cap sync android
+
+      - name: Build Android Debug APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      # Upload to pipeline staging so the final release block can collect it
+      - name: Upload Android Staging Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-bin
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
+  # STEP 3: Compile the iOS IPA
+  build-ios:
+    needs: create-tag
+    name: Build (iOS Mobile)
+    runs-on: macos-latest
+    steps:
+      - name: Fetch Code
+        uses: actions/checkout@v4
+
+      - name: Initialize Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install Project Dependencies
+        run: npm install
+
+      - name: Ensure Capacitor iOS Package Exists
+        run: npm install @capacitor/ios
+
+      - name: Web Asset Build
+        run: npm run build
+
+      - name: Capacitor Sync iOS
+        run: npx cap sync ios
+
+      - name: Compile Xcode Binaries
+        run: |
+          cd ios/App
+          xcodebuild -project App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS=""
+
+      - name: Package Payload to IPA
+        run: |
+          mkdir -p build/Payload
+          cp -r ios/App/build/Build/Products/Debug-iphoneos/App.app build/Payload/
+          cd build && zip -r fps-test-app.ipa Payload/
+
+      # Upload to pipeline staging so the final release block can collect it
+      - name: Upload iOS Staging Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-bin
+          path: build/fps-test-app.ipa
+
+  # STEP 4: Merge files and publish to GitHub Releases
+  publish-release:
+    needs: [create-tag, build-android, build-ios]
+    name: Publish Shared GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create Release Directory
+        run: mkdir -p release-assets
+
+      - name: Download Android Asset
+        uses: actions/download-artifact@v4
+        with:
+          name: android-bin
+          path: release-assets/
+
+      - name: Download iOS Asset
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-bin
+          path: release-assets/
+
+      # Renames files cleanly so they look uniform inside your releases tab
+      - name: Standardize Filenames
+        run: |
+          mv release-assets/app-debug.apk release-assets/fps-test-app.apk
+
+      - name: Dispatch Upload to Shared Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.create-tag.outputs.release_tag }}
+          name: ${{ needs.create-tag.outputs.clean_title }}
+          body: |
+            Automated Cross-Platform Compilation Pipeline.
+            
+            Repository: ${{ github.repository }}
+            Commit: ${{ github.sha }}
+          draft: true
+          prerelease: false
+          files: |
+            release-assets/fps-test-app.apk
+            release-assets/fps-test-app.ipa
